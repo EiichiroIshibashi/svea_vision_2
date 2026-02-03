@@ -187,16 +187,22 @@ class PersonStatePredictor(Node):
         x1, y1 = np.array(c1)
         x0, y0 = np.array(c0)
 
-        # Calculate velocity
-        v = (
-            np.linalg.norm(np.array([x1, y1]) - np.array([x0, y0]))
-            / (self.time_deque[-1]-self.time_deque[-2])
-           # / self.MAX_HISTORY_LEN  # TODO: We are using the last two poits of a path, why to use this here?
-        )
+        dt = float(self.time_deque[-1] - self.time_deque[-2])
 
-        # Calculate heading in radians
+        # Prevent division by zero or invalid dt
+        if not np.isfinite(dt) or dt <= 1e-6:
+            v = 0.0
+            phi = atan2(y1 - y0, x1 - x0) 
+            return v, float(phi)
+
+        dp = np.array([x1 - x0, y1 - y0], dtype=float)
+        dist = float(np.linalg.norm(dp))
+
+        if not np.isfinite(dist):
+            return 0.0, float(atan2(y1 - y0, x1 - x0))
+
+        v = dist / dt
         phi = atan2(y1 - y0, x1 - x0)
-
         return float(v), float(phi)
 
 

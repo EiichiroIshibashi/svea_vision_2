@@ -47,7 +47,7 @@ def generate_launch_description():
 
         # Constants (topics)
         DeclareLaunchArgument('depth_image', default_value='/zed/zed_node/depth/depth_registered', description='Depth image topic'),
-        DeclareLaunchArgument('image', default_value='/zed/zed_node/rgb/image_rect_color', description='RGB image topic'),
+        DeclareLaunchArgument('image', default_value='/zed/zed_node/rgb/color/rect/image', description='RGB image topic'),
         DeclareLaunchArgument('point_cloud', default_value='/zed/zed_node/point_cloud/cloud_registered', description='Point cloud topic'),
         DeclareLaunchArgument('map_path', default_value='', description='Map file path'),
 

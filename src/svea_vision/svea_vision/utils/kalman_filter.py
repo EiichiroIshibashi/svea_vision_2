@@ -73,3 +73,10 @@ class KF(KalmanFilter):
 
         # Measurement model
         self.H = np.eye(len(self.x), len(self.x))
+    
+    def predict(self):
+        """Predict the next state."""
+        # Update the state transition matrix F based on the current heading (phi)
+        self.F[0, 2] = self.dt * cos(self.x[3])
+        self.F[1, 2] = self.dt * sin(self.x[3])
+        return super().predict()

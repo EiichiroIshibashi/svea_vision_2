@@ -237,7 +237,8 @@ class ObjectDetect(Node):
             v1, v2 = [round(v) for v in (v1, v2)]
 
             obj = Object()
-            obj.id = int(_id)
+            # obj.id = int(_id)
+            obj.id = int(_id) if _id is not None else -1
             obj.label = label
             obj.detection_conf = float(_pred)
             obj.tracking_conf = float(_pred)
