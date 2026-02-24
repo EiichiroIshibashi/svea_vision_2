@@ -23,6 +23,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/StampedObjectPoseArray.msg"
   "msg/PersonState.msg"
   "msg/PersonStateArray.msg"
+  "msg/PersonStateKFDebug.msg"
+  "msg/PersonStateKFDebugArray.msg"
   DEPENDENCIES
     geometry_msgs
     sensor_msgs

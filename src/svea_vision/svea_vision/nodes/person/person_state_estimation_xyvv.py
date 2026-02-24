@@ -8,7 +8,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Pose, Twist
 from std_msgs.msg import Float64
 from svea_vision_msgs.msg import StampedObjectPoseArray, PersonState, PersonStateArray, PersonStateKFDebug, PersonStateKFDebugArray
-from svea_vision.utils.kalman_filter import KF
+from svea_vision.utils.kalman_filter_xyvv import KF
 
 
 # Purpose: To track and predict the state of each object detected by a camera system,
@@ -17,7 +17,7 @@ from svea_vision.utils.kalman_filter import KF
 
 class PersonStatePredictor(Node):
     """Class that estimates the states of each detected object
-    (x, y, v, phi) by interpolating the locations up to
+    (x, y, vx, vy) by interpolating the locations up to
     MAX_HISTORY_LEN."""
 
     THRESHOLD_DIST = 0.5  # TODO: Keep the same person id if the distance is not high between two measurements. Improve threshold
@@ -103,17 +103,19 @@ class PersonStatePredictor(Node):
 
             # Estimate the state when having enough historical locations
             if len(self.person_tracker_dict[person_id]) == self.MAX_HISTORY_LEN:
-                # Get the velocity and heading for kalman filter estimation
+                # Estimate an initial velocity for KF bootstrap.
                 v, phi = self.fit(self.person_tracker_dict[person_id])
+                init_vx = float(v * cos(phi))
+                init_vy = float(v * sin(phi))
 
                 # Run the Kalman filter
                 if not self.kf_dict.get(person_id):
-                    # initial position, velocity and heading
+                    # Initial position and velocity.
                     self.kf_dict[person_id] = KF(
                         person_id,
                         [person_loc[0], person_loc[1]],
-                        v,
-                        phi,
+                        init_vx,
+                        init_vy,
                         self.frequency,
                     )
                 else:
@@ -121,9 +123,7 @@ class PersonStatePredictor(Node):
                     z = [
                         person_loc[0],
                         person_loc[1],
-                        v,
-                        phi,
-                    ]  # measurement - actual observaation
+                    ]  # measurement: position only [x, y]
                     self.kf_dict[person_id].update(z)
 
                 kf_state = self.kf_dict[person_id].x  # Kalman filter state estimate
@@ -137,22 +137,34 @@ class PersonStatePredictor(Node):
 
                 # measurement
                 if getattr(kf, "debug", None) is not None and kf.debug.z is not None:
-                    d.meas_x, d.meas_y, d.meas_v, d.meas_phi = map(float, kf.debug.z)
+                    d.meas_x, d.meas_y = map(float, kf.debug.z[:2])
+                    d.meas_v = float("nan")
+                    d.meas_phi = float("nan")
 
                 # prediction (prior)
                 if getattr(kf, "debug", None) is not None and kf.debug.x_pred is not None:
-                    d.pred_x, d.pred_y, d.pred_v, d.pred_phi = map(float, kf.debug.x_pred)
+                    pred = np.asarray(kf.debug.x_pred, dtype=float).reshape(-1)
+                    pred_speed = float(np.hypot(pred[2], pred[3]))
+                    pred_heading = float(atan2(pred[3], pred[2])) if pred_speed > 1e-6 else 0.0
+                    d.pred_x, d.pred_y = float(pred[0]), float(pred[1])
+                    d.pred_v, d.pred_phi = pred_speed, pred_heading
 
                 # posterior
                 if getattr(kf, "debug", None) is not None and kf.debug.x_post is not None:
-                    d.post_x, d.post_y, d.post_v, d.post_phi = map(float, kf.debug.x_post)
+                    post = np.asarray(kf.debug.x_post, dtype=float).reshape(-1)
+                    post_speed = float(np.hypot(post[2], post[3]))
+                    post_heading = float(atan2(post[3], post[2])) if post_speed > 1e-6 else 0.0
+                    d.post_x, d.post_y = float(post[0]), float(post[1])
+                    d.post_v, d.post_phi = post_speed, post_heading
 
                 # innovation
                 if getattr(kf, "debug", None) is not None and kf.debug.innovation is not None:
                     inn = kf.debug.innovation
                     # guard length
-                    if len(inn) >= 4:
-                        d.innov_x, d.innov_y, d.innov_v, d.innov_phi = map(float, inn[:4])
+                    if len(inn) >= 2:
+                        d.innov_x, d.innov_y = map(float, inn[:2])
+                        d.innov_v = float("nan")
+                        d.innov_phi = float("nan")
 
                 # diag covariances
                 if getattr(kf, "debug", None) is not None and kf.debug.p_pred is not None:
@@ -162,11 +174,13 @@ class PersonStatePredictor(Node):
 
                 # Q/R diag (current)
                 try:
-                    d.q_diag = list(map(float, np.diag(kf.Q)))
+                    q_diag = list(map(float, np.diag(kf.Q)))
+                    d.q_diag = q_diag[:4] + [float("nan")] * max(0, 4 - len(q_diag))
                 except Exception:
                     pass
                 try:
-                    d.r_diag = list(map(float, np.diag(kf.R)))
+                    r_diag = list(map(float, np.diag(kf.R)))
+                    d.r_diag = r_diag[:4] + [float("nan")] * max(0, 4 - len(r_diag))
                 except Exception:
                     pass
 
@@ -187,14 +201,10 @@ class PersonStatePredictor(Node):
                         [(kf_state[0], kf_state[1])], maxlen=self.MAX_HISTORY_LEN
                     )
 
-                # Use the KF estimate for calculating the velocity and heading
-                if len(self.kf_state_tracker[person_id]) == self.MAX_HISTORY_LEN:
-                    # If the kf state tracker is large enough, we can fit the new heading and
-                    # velocity using the predicted pedestrian locations from the Kalman filter.
-                    v, phi = self.fit(self.kf_state_tracker[person_id])
-                else:
-                    # Otherwise, we just use the original estimate
-                    v, phi = kf_state[2], kf_state[3]
+                vx = float(kf_state[2])
+                vy = float(kf_state[3])
+                speed = float(np.hypot(vx, vy))
+                phi = float(atan2(vy, vx)) if speed > 1e-6 else 0.0
 
                 state = PersonState()
                 pose = Pose()
@@ -222,8 +232,8 @@ class PersonStatePredictor(Node):
 
                 state.id = person_id
                 state.pose = pose  # position and orientation
-                state.vx = v * cos(phi)
-                state.vy = v * sin(phi)
+                state.vx = vx
+                state.vy = vy
                 state.ax = 0.0
                 state.ay = 0.0
                 state.counter = self.frame_counter
