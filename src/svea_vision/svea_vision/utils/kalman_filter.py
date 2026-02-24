@@ -1,25 +1,7 @@
 # Not a ROS-node, only Kalman Filter
 from filterpy.kalman import KalmanFilter
 import numpy as np
-from math import sin, cos, pi
-from dataclasses import dataclass
-from typing import Optional
-
-@dataclass
-class KFSnapshot:
-    # measurement (z)
-    z: Optional[np.ndarray] = None
-    # prior (after predict)
-    x_pred: Optional[np.ndarray] = None
-    p_pred: Optional[np.ndarray] = None
-    # posterior (after update)
-    x_post: Optional[np.ndarray] = None
-    p_post: Optional[np.ndarray] = None
-    # innovation + stats (after update)
-    innovation: Optional[np.ndarray] = None # y
-    S: Optional[np.ndarray] = None
-    K: Optional[np.ndarray] = None
-    nis: float = float("nan")
+from math import sin, cos, 
 
 # KalmanFilters performance depends on the correct setting of parameters
 # like the process noise, measurement noise, and the initial state estimate.
@@ -128,9 +110,6 @@ class KF(KalmanFilter):
         self.x[2] = max(0.0, float(self.x[2]))
         self.x[3] = self._wrap_angle(float(self.x[3]))
 
-        # Store debug info
-        self.debug.x_pred = self.x.copy()
-        self.debug.P_pred = self.P.copy()
         return self.x
 
     def update(self, z, R=None, H=None):
@@ -142,52 +121,11 @@ class KF(KalmanFilter):
         measured_phi = self._wrap_angle(float(z[3]))
         phi_error = self._wrap_angle(measured_phi - predicted_phi)
         z[3] = predicted_phi + phi_error
-
-        # Store debug info before update
-        self.debug.z = z.copy()
         
         super().update(z, R=R, H=H)
 
         # clamp + warp
         self.x[2] = max(0.0, float(self.x[2]))
         self.x[3] = self._wrap_angle(float(self.x[3]))
-
-        # -- debug snapshot: posterior
-        self.debug.x_post = self.x.copy()
-        self.debug.P_post = self.P.copy()
-
-        # innovation / S / K (filterpy sets these on update)
-        # y is usually shape (dim_z, 1) or (dim_z,)
-        try:
-            y = np.asarray(self.y, dtype=float).reshape(-1)
-        except Exception:
-            y = None
-
-        if y is not None and y.size >= 4:
-            # make sure angle innovation is wrapped
-            y = y.copy()
-            y[3] = self._wrap_angle(float(y[3]))
-            self.debug.innovation = y
-
-        try:
-            self.debug.S = np.asarray(self.S, dtype=float).copy()
-        except Exception:
-            self.debug.S = None
-
-        try:
-            self.debug.K = np.asarray(self.K, dtype=float).copy()
-        except Exception:
-            self.debug.K = None
-
-        # NIS = y^T S^-1 y
-        try:
-            if self.debug.innovation is not None and self.debug.S is not None:
-                yv = self.debug.innovation.reshape(-1, 1)
-                Sinv = np.linalg.inv(self.debug.S)
-                self.debug.nis = float((yv.T @ Sinv @ yv)[0, 0])
-            else:
-                self.debug.nis = float("nan")
-        except Exception:
-            self.debug.nis = float("nan")
 
         return self.x

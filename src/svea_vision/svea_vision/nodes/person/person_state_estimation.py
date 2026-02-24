@@ -7,7 +7,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose, Twist
 from std_msgs.msg import Float64
-from svea_vision_msgs.msg import StampedObjectPoseArray, PersonState, PersonStateArray, PersonStateKFDebug, PersonStateKFDebugArray
+from svea_vision_msgs.msg import StampedObjectPoseArray, PersonState, PersonStateArray
 from svea_vision.utils.kalman_filter import KF
 
 
@@ -75,8 +75,6 @@ class PersonStatePredictor(Node):
         self.__update_frequency(msg)
         personStateArray_msg = PersonStateArray()
         personStateArray_msg.header = msg.header
-        debugArray_msg = PersonStateKFDebugArray()
-        debugArray_msg.header = msg.header
 
         for person in msg.objects:
             # Get the person's ID and current location
@@ -127,57 +125,7 @@ class PersonStatePredictor(Node):
                     self.kf_dict[person_id].update(z)
 
                 kf_state = self.kf_dict[person_id].x  # Kalman filter state estimate
-                kf = self.kf_dict[person_id]
-
-                # ---- build debug (only if KF has run at least one update) ----
-                d = PersonStateKFDebug()
-                d.header = msg.header
-                d.id = int(person_id)
-                d.counter = int(self.frame_counter)
-
-                # measurement
-                if getattr(kf, "debug", None) is not None and kf.debug.z is not None:
-                    d.meas_x, d.meas_y, d.meas_v, d.meas_phi = map(float, kf.debug.z)
-
-                # prediction (prior)
-                if getattr(kf, "debug", None) is not None and kf.debug.x_pred is not None:
-                    d.pred_x, d.pred_y, d.pred_v, d.pred_phi = map(float, kf.debug.x_pred)
-
-                # posterior
-                if getattr(kf, "debug", None) is not None and kf.debug.x_post is not None:
-                    d.post_x, d.post_y, d.post_v, d.post_phi = map(float, kf.debug.x_post)
-
-                # innovation
-                if getattr(kf, "debug", None) is not None and kf.debug.innovation is not None:
-                    inn = kf.debug.innovation
-                    # guard length
-                    if len(inn) >= 4:
-                        d.innov_x, d.innov_y, d.innov_v, d.innov_phi = map(float, inn[:4])
-
-                # diag covariances
-                if getattr(kf, "debug", None) is not None and kf.debug.p_pred is not None:
-                    d.p_pred_diag = list(map(float, np.diag(kf.debug.p_pred)))
-                if getattr(kf, "debug", None) is not None and kf.debug.p_post is not None:
-                    d.p_post_diag = list(map(float, np.diag(kf.debug.p_post)))
-
-                # Q/R diag (current)
-                try:
-                    d.q_diag = list(map(float, np.diag(kf.Q)))
-                except Exception:
-                    pass
-                try:
-                    d.r_diag = list(map(float, np.diag(kf.R)))
-                except Exception:
-                    pass
-
-                # NIS
-                try:
-                    d.nis = float(kf.debug.nis) if getattr(kf, "debug", None) is not None else float("nan")
-                except Exception:
-                    d.nis = float("nan")
-
-                debugArray_msg.personstate.append(d)
-
+                
                 # Check if the person_id is in the kf_state_tracker, append its (x,y) pos
                 # or create new deque list.
                 if person_id in self.kf_state_tracker:
@@ -238,7 +186,6 @@ class PersonStatePredictor(Node):
         # Put the list of personstate in the message and publish it
         personStateArray_msg.personstate = list(self.person_states.values())
         self.pub_kf.publish(personStateArray_msg)
-        self.pub_kf_debug.publish(debugArray_msg)
 
     def __calculate_velocity_heading(self, c0, c1):
         """Coordinate interpolation
