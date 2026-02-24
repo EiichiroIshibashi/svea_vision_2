@@ -43,7 +43,6 @@ class PersonStatePredictor(Node):
         self.TTL = 0.5 # seconds
         # Initialize the publisher for Twist messages
         self.pub_kf = self.create_publisher(PersonStateArray, "~/person_states_kf", 10)
-        self.pub_kf_debug = self.create_publisher(PersonStateKFDebugArray, "~/person_states_kf_debug", 10)
         self.start()
 
     def __listener(self):
