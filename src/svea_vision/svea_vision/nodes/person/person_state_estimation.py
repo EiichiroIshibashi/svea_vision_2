@@ -17,7 +17,7 @@ from svea_vision.utils.kalman_filter import KF
 
 class PersonStatePredictor(Node):
     """Class that estimates the states of each detected object
-    (x, y, v, phi) by interpolating the locations up to
+    (x, y, vx, vy) by interpolating the locations up to
     MAX_HISTORY_LEN."""
 
     THRESHOLD_DIST = 0.5  # TODO: Keep the same person id if the distance is not high between two measurements. Improve threshold
@@ -101,17 +101,19 @@ class PersonStatePredictor(Node):
 
             # Estimate the state when having enough historical locations
             if len(self.person_tracker_dict[person_id]) == self.MAX_HISTORY_LEN:
-                # Get the velocity and heading for kalman filter estimation
+                # Estimate an initial velocity for KF bootstrap.
                 v, phi = self.fit(self.person_tracker_dict[person_id])
+                init_vx = float(v * cos(phi))
+                init_vy = float(v * sin(phi))
 
                 # Run the Kalman filter
                 if not self.kf_dict.get(person_id):
-                    # initial position, velocity and heading
+                    # Initial position and velocity.
                     self.kf_dict[person_id] = KF(
                         person_id,
                         [person_loc[0], person_loc[1]],
-                        v,
-                        phi,
+                        init_vx,
+                        init_vy,
                         self.frequency,
                     )
                 else:
@@ -119,9 +121,7 @@ class PersonStatePredictor(Node):
                     z = [
                         person_loc[0],
                         person_loc[1],
-                        v,
-                        phi,
-                    ]  # measurement - actual observaation
+                    ]  # measurement: position only [x, y]
                     self.kf_dict[person_id].update(z)
 
                 kf_state = self.kf_dict[person_id].x  # Kalman filter state estimate
@@ -135,14 +135,10 @@ class PersonStatePredictor(Node):
                         [(kf_state[0], kf_state[1])], maxlen=self.MAX_HISTORY_LEN
                     )
 
-                # Use the KF estimate for calculating the velocity and heading
-                if len(self.kf_state_tracker[person_id]) == self.MAX_HISTORY_LEN:
-                    # If the kf state tracker is large enough, we can fit the new heading and
-                    # velocity using the predicted pedestrian locations from the Kalman filter.
-                    v, phi = self.fit(self.kf_state_tracker[person_id])
-                else:
-                    # Otherwise, we just use the original estimate
-                    v, phi = kf_state[2], kf_state[3]
+                vx = float(kf_state[2])
+                vy = float(kf_state[3])
+                speed = float(np.hypot(vx, vy))
+                phi = float(atan2(vy, vx)) if speed > 1e-6 else 0.0
 
                 state = PersonState()
                 pose = Pose()
@@ -170,8 +166,8 @@ class PersonStatePredictor(Node):
 
                 state.id = person_id
                 state.pose = pose  # position and orientation
-                state.vx = v * cos(phi)
-                state.vy = v * sin(phi)
+                state.vx = vx
+                state.vy = vy
                 state.ax = 0.0
                 state.ay = 0.0
                 state.counter = self.frame_counter
