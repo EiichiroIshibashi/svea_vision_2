@@ -27,12 +27,14 @@ def generate_launch_description():
 
         # Camera pose parameters
         DeclareLaunchArgument('zed_base_frame', default_value='base_link', description='ZED base frame'),
-        DeclareLaunchArgument('zed_cam_pos_x', default_value='0.0', description='ZED camera X position'),
-        DeclareLaunchArgument('zed_cam_pos_y', default_value='0.0', description='ZED camera Y position'),
-        DeclareLaunchArgument('zed_cam_pos_z', default_value='0.0', description='ZED camera Z position'),
+        DeclareLaunchArgument('zed_cam_pos_x', default_value='0.40', description='ZED camera X position'),
+        DeclareLaunchArgument('zed_cam_pos_y', default_value='0', description='ZED camera Y position'),
+        DeclareLaunchArgument('zed_cam_pos_z', default_value='0.21', description='ZED camera Z position'),
         DeclareLaunchArgument('zed_cam_roll', default_value='0.0', description='ZED camera roll'),
         DeclareLaunchArgument('zed_cam_pitch', default_value='0.0', description='ZED camera pitch'),
         DeclareLaunchArgument('zed_cam_yaw', default_value='0.0', description='ZED camera yaw'),
+        DeclareLaunchArgument('tf_parent_frame', default_value='base_link', description='Parent frame for static TF'),
+        DeclareLaunchArgument('tf_child_frame', default_value='zed_camera_link', description='Child frame for static TF'),
 
         # Auxiliary parameters
         DeclareLaunchArgument('only_objects', default_value='', description='Only detect specified objects'),
@@ -76,6 +78,24 @@ def generate_launch_description():
                 }.items()
             )
         ], scoped=True),
+
+        # Static TF: /odom -> /zed_camera_link
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='odom_to_zed_camera_link_tf',
+            output='screen',
+            arguments=[
+                LaunchConfiguration('zed_cam_pos_x'),
+                LaunchConfiguration('zed_cam_pos_y'),
+                LaunchConfiguration('zed_cam_pos_z'),
+                LaunchConfiguration('zed_cam_roll'),
+                LaunchConfiguration('zed_cam_pitch'),
+                LaunchConfiguration('zed_cam_yaw'),
+                LaunchConfiguration('tf_parent_frame'),
+                LaunchConfiguration('tf_child_frame'),
+            ]
+        ),
 
         # Include object_pose launch
         IncludeLaunchDescription(

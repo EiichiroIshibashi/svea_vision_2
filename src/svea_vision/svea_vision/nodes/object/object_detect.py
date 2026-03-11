@@ -61,10 +61,12 @@ class ObjectDetect(Node):
         self.declare_parameter("enable_bbox_image", False)
         self.declare_parameter("sub_image", "image")
         self.declare_parameter("image_width", 640)
-        self.declare_parameter("image_height", 480)
+        # self.declare_parameter("image_height", 480)
+        self.declare_parameter("image_height", 384)
         self.declare_parameter("pub_bbox_image", "bbox_image")
         self.declare_parameter("use_cuda", False)
-        self.declare_parameter("model_path", "yolov8n.pt")
+        # self.declare_parameter("model_path", "yolov8n.pt")
+        self.declare_parameter("model_path", "yolov8n_640x384.engine")
         self.declare_parameter("only_objects", "")
         self.declare_parameter("skip_objects", "")
         self.declare_parameter("max_age", 30)
@@ -99,7 +101,7 @@ class ObjectDetect(Node):
         
         try:
             # First, try standard loading
-            self.model = YOLO(self.MODEL_PATH)
+            self.model = YOLO(self.MODEL_PATH, task="detect")
             self.get_logger().info(f"Successfully loaded YOLO model from {self.MODEL_PATH}")
         except Exception as first_error:
             self.get_logger().warn(f"Standard loading failed: {first_error}")
@@ -114,16 +116,29 @@ class ObjectDetect(Node):
                 torch.load = safe_load
                 self.model = YOLO(self.MODEL_PATH)
                 torch.load = original_load
-                self.get_logger().info(f"Successfully loaded YOLO model with weights_only=False")
+                self.get_logger().info(f"Successfully loaded YOLO model from {self.MODEL_PATH} with weights_only=False")
                 
             except Exception as second_error:
                 self.get_logger().error(f"Failed to load YOLO model: {second_error}")
                 raise RuntimeError(f"Could not load YOLO model from {self.MODEL_PATH}")
 
+        # if self.USE_CUDA:
+        #     try:
+        #         self.model.to("cuda")
+        #         self.get_logger().info("CUDA enabled")
+        #     except Exception as cuda_error:
+        #         self.get_logger().warn(f"CUDA initialization failed: {cuda_error}, falling back to CPU")
+        #         self.USE_CUDA = False
+        # else:
+        #     self.get_logger().info("CUDA disabled")
+
         if self.USE_CUDA:
             try:
-                self.model.to("cuda")
-                self.get_logger().info("CUDA enabled")
+                if self.MODEL_PATH.endswith(".pt"): # only call .to("cuda") for PyTorch models, not TensorRT engines
+                    self.model.to("cuda")
+                    self.get_logger().info("CUDA enabled for PyTorch model")
+                else:
+                    self.get_logger().info("TensorRT engine loaded; skipping model.to('cuda')")
             except Exception as cuda_error:
                 self.get_logger().warn(f"CUDA initialization failed: {cuda_error}, falling back to CPU")
                 self.USE_CUDA = False
@@ -146,7 +161,15 @@ class ObjectDetect(Node):
             self.get_logger().warn(f"Could not load class names: {e}")
             self.label_to_class = lambda label: 0
 
-        self.detect_kwargs = {"persist": True, "conf": 0.5, "verbose": False}
+        # self.detect_kwargs = {"persist": True, "conf": 0.5, "verbose": False}
+        self.detect_kwargs = {
+            "persist": True,
+            "conf": 0.5,
+            "verbose": False,
+            "imgsz": (self.IMAGE_HEIGHT, self.IMAGE_WIDTH),  # (384, 640)
+        }
+        if self.MODEL_PATH.endswith(".engine"):
+            self.detect_kwargs["device"] = 0
 
         if self.ONLY_OBJECTS:
             try:
@@ -188,7 +211,8 @@ class ObjectDetect(Node):
         frame = np.frombuffer(image.data, dtype=np.uint8).reshape(
             image.height, image.width, -1
         )
-        frame = cv2.resize(frame, (self.IMAGE_WIDTH, self.IMAGE_HEIGHT))
+        if image.width != self.IMAGE_WIDTH or image.height != self.IMAGE_HEIGHT:
+            frame = cv2.resize(frame, (self.IMAGE_WIDTH, self.IMAGE_HEIGHT))
         frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
 
         result = self.model.track(frame, **self.detect_kwargs)[0]
